@@ -3,38 +3,55 @@ package com.example.camerademo
 import android.Manifest
 import android.annotation.SuppressLint
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.os.Build
-import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
+import android.os.Handler
 import android.util.DisplayMetrics
 import android.util.Log
 import android.util.Size
 import android.view.MotionEvent
 import android.view.TextureView
+import android.widget.ImageView
+import android.widget.TextView
 import android.widget.Toast
+import androidx.appcompat.app.AppCompatActivity
 import androidx.camera.camera2.Camera2Config
 import androidx.camera.core.*
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import com.google.android.gms.tasks.Task
 import com.google.common.util.concurrent.ListenableFuture
+import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.face.Face
+import com.google.mlkit.vision.face.FaceDetection
 import kotlinx.android.synthetic.main.activity_main.*
+import java.nio.ByteBuffer
+import java.util.*
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var processCameraProviderFuture: ListenableFuture<ProcessCameraProvider>
     private lateinit var processCameraProvider: ProcessCameraProvider
+    private lateinit var emotion: TextView
+    private lateinit var cameraView: ImageView
 
     //    private lateinit var viewBinding: ActivityMainBinding
     private var imageCapture: ImageCapture? = null
     private lateinit var cameraExecutor: ExecutorService
 
 
+    @SuppressLint("MissingInflatedId")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+        emotion = findViewById(R.id.mEmotion)
+        cameraView = findViewById(R.id.cameraImage)
 
         if (allPermissionsGranted()) {
             init()
@@ -138,7 +155,7 @@ class MainActivity : AppCompatActivity() {
         processCameraProvider.unbindAll()
         val camera = processCameraProvider.bindToLifecycle(
             this,
-            CameraSelector.DEFAULT_BACK_CAMERA,
+            CameraSelector.DEFAULT_FRONT_CAMERA,
             buildPreviewUseCase(),
 //            buildImageCaptureUseCase()
             buildImageAnalysisUseCase()
@@ -176,20 +193,45 @@ class MainActivity : AppCompatActivity() {
             Executors.newSingleThreadExecutor(),
             ImageAnalysis.Analyzer { imageProxy ->
                 Log.d("CameraFragment", "Image analysis result $imageProxy")
-                imageProxy.use {
-                    try {
-//                        val bitmapImage = imageProxy.image?.toBitmap()
-//                        val stream = ByteArrayOutputStream()
-//                        bitmapImage.compress(Bitmap.CompressFormat.PNG, 90, stream)
-//                        val image = imageProxy.toJpeg() //write the logic here to convert imageproxy to byteArray
-//                        Log.d("CameraFragment", "Image ByteArray $image")
-                    } catch (t: Throwable) {
-                        Log.d("CameraFragment", "Error in getting img")
-                    }
-                }
+                detect(imageProxy)
+                val byteArray = imageProxyToByteArray(imageProxy)
+                Log.d(TAG, "byte array : $byteArray")
+
+//                imageProxy.use {
+//                    try {
+////                        val bitmapImage = imageProxy.image?.toBitmap()
+////                        val stream = ByteArrayOutputStream()
+////                        bitmapImage.compress(Bitmap.CompressFormat.PNG, 90, stream)
+////                        val image = imageProxy.toJpeg() //write the logic here to convert imageproxy to byteArray
+//                        //val image = imageProxyToBitmap(imageProxy)
+////                        runOnUiThread(Runnable { kotlin.run {
+////                            detect(imageProxy)
+////                        } })
+//
+//                        Log.d("CameraFragment", "Image Bitmap ${image.toString()}")
+//
+//                    } catch (t: Throwable) {
+//                        Log.d("CameraFragment", "Error in getting img")
+//                    }
+//                }
                 imageProxy.close()
             })
         return analysis
+    }
+
+    private fun imageProxyToBitmap(image: ImageProxy): Bitmap {
+        val buffer: ByteBuffer = image.planes[0].buffer
+        val bytes = ByteArray(buffer.remaining())
+        buffer.get(bytes)
+        return BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+    }
+
+    //returns image byte array
+    fun imageProxyToByteArray(image: ImageProxy): ByteArray {
+        val buffer = image.planes[0].buffer
+        val bytes = ByteArray(buffer.remaining())
+        buffer.get(bytes)
+        return bytes
     }
 
     private fun setupTapForFocus(cameraControl: CameraControl) {
@@ -249,5 +291,31 @@ class MainActivity : AppCompatActivity() {
             }.toTypedArray()
     }
 
+
+    @SuppressLint("UnsafeExperimentalUsageError")
+    private fun detect(imageProxy: ImageProxy) {
+        Log.d("CameraFragment", "inside detect")
+        val faceDetector = FaceDetection.getClient()
+        val image =
+            InputImage.fromMediaImage(imageProxy.image!!, imageProxy.imageInfo.rotationDegrees)
+//        val image: InputImage = InputImage.fromBitmap(bitmap,0)
+        Log.d(TAG, "${image.width} :: ${image.height}")
+        val result: Task<List<Face>> = faceDetector.process(image)
+        result.addOnSuccessListener { faces ->
+            // Do something with the detected faces
+            for (face in faces) {
+                val smileProb = face.smilingProbability
+                val leftEyeProb = face.leftEyeOpenProbability
+                val rightEyeProb = face.rightEyeOpenProbability
+                // Do something with the emotions
+                Log.d(TAG, "smile : %$face $smileProb $leftEyeProb $rightEyeProb")
+                emotion.text = face.toString()
+            }
+        }.addOnFailureListener { exception: Exception ->
+            // Handle the error
+            Log.d(TAG, exception.toString())
+        }
+
+    }
 
 }

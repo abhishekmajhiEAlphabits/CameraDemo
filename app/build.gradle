@@ -31,6 +31,8 @@ dependencies {
     implementation "androidx.camera:camera-view:$cameraXViewVersion"
     testImplementation "junit:junit:$junitVersion"
     androidTestImplementation "androidx.test:runner:$testRunnerVersion"
+
+    implementation 'com.google.mlkit:face-detection:16.1.5'
 }
 
 
